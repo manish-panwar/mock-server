@@ -3,6 +3,7 @@ package io.vertx.example;
 import io.vertx.core.VertxOptions;
 import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.net.PfxOptions;
+import io.vertx.ext.web.RoutingContext;
 import io.vertx.rxjava.core.Vertx;
 import io.vertx.rxjava.core.http.HttpServer;
 import io.vertx.rxjava.ext.web.Router;
@@ -36,32 +37,24 @@ public class Server {
     private VertxOptions vertxOptions;
 
     @PostConstruct
-    public void init() {
+    public void init() throws InterruptedException, ExecutionException, TimeoutException {
         LOGGER.info("Creating {} instances of HttpServer", vertxOptions.getEventLoopPoolSize());
-        try {
-            contextRunner.executeBlocking(vertxOptions.getEventLoopPoolSize(),
-                    () -> createHttpServer().buffer(2), 1, MINUTES);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            LOGGER.error("Error while starting HTTP server.", e);
-        }
+        contextRunner.executeBlocking(vertxOptions.getEventLoopPoolSize(),
+                () -> createHttpServer().buffer(2), 1, MINUTES);
     }
 
     private Observable<HttpServer> createHttpServer() {
-        Router router = createRouter();
-        router.get("/").handler(context -> {
-            context.response().setChunked(true).write("Hey there!!!").end();
-        });
-        HttpServerOptions options = createHttpServerOptions();
-        return vertx.createHttpServer(options).requestHandler(router::accept).listenObservable()
-                .doOnCompleted(() -> LOGGER.info("Listening on port {}", PORT));
-    }
-
-    private Router createRouter() {
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create()).failureHandler(context -> context.response().end());
         router.get("/policies/device").handler(httpRequestHandler::getDevicePolicies);
         router.get("/policies/account").handler(httpRequestHandler::getAccountPolicies);
-        return router;
+
+        router.route().failureHandler(context -> {
+            LOGGER.error("Error handling request {}", context.request().uri(), ((RoutingContext) context.getDelegate()).failure());
+        });
+        HttpServerOptions options = createHttpServerOptions();
+        return vertx.createHttpServer(options).requestHandler(router::accept).listenObservable()
+                .doOnCompleted(() -> LOGGER.info("Listening on port {}", PORT));
     }
 
     private HttpServerOptions createHttpServerOptions() {
